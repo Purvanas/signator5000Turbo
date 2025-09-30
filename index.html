@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Éditeur PDF avec Signatures</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <!-- PDF-Lib CDN -->
+  <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .d-flex { height: 100vh; }
+    nav { min-width: 300px; overflow-y: auto; }
+    main { flex-grow: 1; overflow-y: auto; position: relative; }
+    #pdf-container { position: relative; padding: 20px; display: inline-block; }
+    .pdf-page { border: 1px solid #ccc; display: block; margin-bottom: 20px; }
+    .sig-instance { position: absolute; cursor: move; }
+    .selected-signature { outline: 2px solid red; }
+    #sig-palette { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.9); padding: 10px; border: 1px solid #ccc; max-width: 150px; }
+    #sig-palette img { display: block; margin-bottom: 10px; cursor: pointer; max-width: 100%; }
+    /* Limiter la hauteur des items de signature */
+    #sig-list .list-group-item { height: 30px; line-height: 30px; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="d-flex">
+    <!-- Sidebar -->
+    <nav class="bg-light vh-100 p-3">
+      <h4 class="mb-4">Éditeur PDF</h4>
+      <div class="mb-3">
+        <label for="pdf-input" class="form-label">Charger PDF</label>
+        <input class="form-control" type="file" id="pdf-input" accept="application/pdf" />
+      </div>
+      <div class="mb-3">
+        <label for="sig-input" class="form-label">Importer Signature</label>
+        <input class="form-control" type="file" id="sig-input" accept="image/png" />
+      </div>
+      <h5>Signatures importées</h5>
+      <ul class="list-group mb-3" id="sig-list"></ul>
+      <button class="btn btn-primary w-100 mb-3" id="save-btn">Enregistrer PDF signé</button>
+    </nav>
+
+    <!-- Main content -->
+    <main class="d-flex justify-content-center align-items-start p-4">
+      <div id="pdf-container"></div>
+      <div id="sig-palette"></div>
+    </main>
+  </div>
+
+  <!-- Bootstrap Bundle JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    const pdfInput = document.getElementById('pdf-input');
+    const sigInput = document.getElementById('sig-input');
+    const saveBtn = document.getElementById('save-btn');
+    const container = document.getElementById('pdf-container');
+    const sigList = document.getElementById('sig-list');
+    const sigPalette = document.getElementById('sig-palette');
+
+    let pdfBytes = null;
+    let originalName = '';
+    let signatures = [];
+    let selectedId = null;
+    let sigCounter = 0;
+
+    // Charger et afficher le PDF
+    pdfInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      originalName = file.name;
+      pdfBytes = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+      container.innerHTML = '';
+      signatures.forEach(sig => sig.instances.forEach(inst => inst.remove()));
+      signatures.forEach(sig => sig.instances = []);
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.className = 'pdf-page';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        container.appendChild(canvas);
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+      }
+    });
+
+    // Importer une nouvelle signature
+    sigInput.addEventListener('change', (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const url = URL.createObjectURL(file);
+      const id = 'sig-' + (++sigCounter);
+      const sigObj = { id, url, size: 100, instances: [] };
+      signatures.push(sigObj);
+      renderSignatureItem(sigObj);
+      renderPalette();
+    });
+
+    // Rendu de la liste de signatures
+    function renderSignatureItem(sig) {
+      const li = document.createElement('li');
+      li.className = 'list-group-item d-flex align-items-center';
+      li.id = 'item-' + sig.id;
+      li.innerHTML = `
+        <span class="flex-grow-1" style="cursor:pointer;">${sig.id}</span>
+        <input type="range" min="50" max="300" value="${sig.size}" class="form-range me-2" style="width:100px;" data-id="${sig.id}" />
+        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${sig.id}">X</button>
+      `;
+      // Sélection
+      li.querySelector('span').addEventListener('click', () => selectSignature(sig.id));
+      // Taille
+      li.querySelector('input').addEventListener('input', (ev) => {
+        sig.size = ev.target.value;
+        updateSignatureSize(sig.id);
+        renderPalette();
+      });
+      // Suppression
+      li.querySelector('button').addEventListener('click', () => {
+        deleteSignature(sig.id);
+      });
+      sigList.appendChild(li);
+    }
+
+    // Rendu palette fixe
+    function renderPalette() {
+      sigPalette.innerHTML = '';
+      signatures.forEach(sig => {
+        const img = document.createElement('img');
+        img.src = sig.url;
+        img.width = sig.size;
+        img.alt = sig.id;
+        img.dataset.id = sig.id;
+        img.title = 'Cliquez pour ajouter';
+        img.addEventListener('click', () => addInstance(sig.id));
+        sigPalette.appendChild(img);
+      });
+    }
+
+    // Ajouter une instance sur PDF
+    function addInstance(id) {
+      const sig = signatures.find(s => s.id === id);
+      const img = document.createElement('img');
+      img.src = sig.url;
+      img.className = 'sig-instance';
+      img.width = sig.size;
+      img.dataset.id = id;
+      img.style.left = '10px';
+      img.style.top = '10px';
+      container.appendChild(img);
+      // Drag & drop
+      img.addEventListener('mousedown', startDrag);
+      sig.instances.push(img);
+      selectSignature(id);
+    }
+
+    // Drag & drop handler
+    function startDrag(e) {
+      const img = e.target;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const origX = parseInt(img.style.left);
+      const origY = parseInt(img.style.top);
+      function onMove(ev) {
+        img.style.left = origX + (ev.clientX - startX) + 'px';
+        img.style.top = origY + (ev.clientY - startY) + 'px';
+      }
+      function onUp() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    }
+
+    // Sélectionner une signature
+    function selectSignature(id) {
+      selectedId = id;
+      document.querySelectorAll('.sig-instance').forEach(img => {
+        img.classList.toggle('selected-signature', img.dataset.id === id);
+      });
+    }
+
+    // Mettre à jour la taille des instances et palette
+    function updateSignatureSize(id) {
+      const sig = signatures.find(s => s.id === id);
+      sig.instances.forEach(img => img.width = sig.size);
+    }
+
+    // Supprimer signature
+    function deleteSignature(id) {
+      signatures = signatures.filter(s => s.id !== id);
+      document.getElementById('item-' + id).remove();
+      renderPalette();
+      container.querySelectorAll(`.sig-instance[data-id="${id}"]`).forEach(el => el.remove());
+      if (selectedId === id) selectedId = null;
+    }
+
+    // Enregistrer le PDF signé
+    saveBtn.addEventListener('click', async () => {
+      if (!pdfBytes) { alert('Veuillez charger un PDF.'); return; }
+      const { PDFDocument } = PDFLib;
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const canvases = Array.from(container.querySelectorAll('canvas'));
+      for (const sig of signatures) {
+        const pngBytes = await fetch(sig.url).then(r => r.arrayBuffer());
+        const pngImage = await pdfDoc.embedPng(pngBytes);
+        for (const img of sig.instances) {
+          const rect = img.getBoundingClientRect();
+          const contRect = container.getBoundingClientRect();
+          const relX = rect.left - contRect.left;
+          const relY = rect.top - contRect.top;
+          let pageIndex = 0, offsetY = 0;
+          canvases.forEach((canvas, i) => {
+            const cRect = canvas.getBoundingClientRect();
+            const top = cRect.top - contRect.top;
+            const bottom = top + cRect.height;
+            if (relY >= top && relY <= bottom) { pageIndex = i; offsetY = relY - top; }
+          });
+          const page = pdfDoc.getPages()[pageIndex];
+          const { width, height } = page.getSize();
+          const scale = canvases[pageIndex].width / width;
+          const imgW = img.width / scale;
+          const imgH = img.height / scale;
+          const x = relX / scale;
+          const y = (canvases[pageIndex].height - offsetY - img.height) / scale;
+          page.drawImage(pngImage, { x, y, width: imgW, height: imgH });
+        }
+      }
+      const modifiedBytes = await pdfDoc.save();
+      const blob = new Blob([modifiedBytes], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      // Générer nom de fichier basé sur l'original + "-1"
+      const baseName = originalName.replace(/\.pdf$/i, '');
+      link.download = `${baseName}-1.pdf`;
+      link.click();
+    });
+  </script>
+</body>
+</html>
