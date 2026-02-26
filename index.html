@@ -3,173 +3,571 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Éditeur PDF avec Signatures</title>
-  <!-- Bootstrap CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
-  <!-- PDF.js CDN -->
+  <title>Signator 5000 Turbo</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-  <!-- PDF-Lib CDN -->
   <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; }
-    .d-flex { height: 100vh; }
-    nav { min-width: 300px; overflow-y: auto; }
-    main { flex-grow: 1; overflow-y: auto; position: relative; }
-    #pdf-container { position: relative; padding: 20px; display: inline-block; }
-    .pdf-page { border: 1px solid #ccc; display: block; margin-bottom: 20px; }
-    .sig-instance { position: absolute; cursor: move; }
-    .selected-signature { outline: 2px solid red; }
-    #sig-palette { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.9); padding: 10px; border: 1px solid #ccc; max-width: 150px; }
-    #sig-palette img { display: block; margin-bottom: 10px; cursor: pointer; max-width: 100%; }
-    /* Limiter la hauteur des items de signature */
-    #sig-list .list-group-item { height: 30px; line-height: 30px; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e10;
+      --bg-surface: #18181b;
+      --bg-elevated: #1f1f23;
+      --bg-hover: #26262c;
+      --border: #2e2e35;
+      --text: #efeff1;
+      --text-muted: #8b8b94;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --danger: #ef4444;
+      --danger-hover: #f87171;
+      --success: #22c55e;
+      --radius: 10px;
+      --transition: 150ms ease;
+    }
+
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* Layout */
+    .app { display: flex; height: 100vh; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 320px; min-width: 320px; background: var(--bg-surface);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+      overflow-y: auto; overflow-x: hidden;
+    }
+    .sidebar-header {
+      padding: 20px 20px 0; display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-header h1 { font-size: 1.15rem; font-weight: 600; }
+    .sidebar-header .logo {
+      width: 32px; height: 32px; background: var(--accent); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+    }
+    .sidebar-content { padding: 20px; flex: 1; display: flex; flex-direction: column; gap: 20px; }
+
+    .section-title { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 8px; }
+
+    /* Drop zones */
+    .drop-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px 16px;
+      text-align: center; cursor: pointer; transition: all var(--transition); position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(99,102,241,0.06); }
+    .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .drop-zone-icon { font-size: 28px; margin-bottom: 6px; }
+    .drop-zone-text { font-size: 0.82rem; color: var(--text-muted); }
+    .drop-zone-text strong { color: var(--accent); }
+
+    .file-loaded { border-color: var(--success); background: rgba(34,197,94,0.06); }
+    .file-loaded .drop-zone-icon::after { content: ' ✓'; color: var(--success); }
+
+    /* Signature list */
+    .sig-list { display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
+
+    .sig-item {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; transition: all var(--transition);
+    }
+    .sig-item:hover { border-color: var(--accent); }
+    .sig-item.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    .sig-item-header { display: flex; align-items: center; gap: 10px; }
+    .sig-item-preview { width: 40px; height: 28px; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; flex-shrink: 0; }
+    .sig-item-name { flex: 1; font-size: 0.82rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sig-item-count { font-size: 0.7rem; color: var(--text-muted); background: var(--bg); padding: 2px 7px; border-radius: 99px; }
+
+    .sig-item-controls { display: flex; align-items: center; gap: 8px; }
+    .sig-item-controls label { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+
+    .size-slider { flex: 1; -webkit-appearance: none; appearance: none; height: 4px; background: var(--border); border-radius: 2px; outline: none; }
+    .size-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--accent); border-radius: 50%; cursor: pointer; }
+    .size-slider::-moz-range-thumb { width: 14px; height: 14px; background: var(--accent); border-radius: 50%; cursor: pointer; border: none; }
+    .size-value { font-size: 0.7rem; color: var(--text-muted); min-width: 28px; text-align: right; }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 16px; border: none; border-radius: var(--radius); font-size: 0.85rem;
+      font-weight: 500; cursor: pointer; transition: all var(--transition); display: inline-flex;
+      align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 4px 8px; font-size: 0.75rem; }
+    .btn-danger:hover { background: var(--danger); color: #fff; }
+    .btn-ghost { background: transparent; color: var(--text-muted); padding: 4px 8px; font-size: 0.75rem; }
+    .btn-ghost:hover { color: var(--text); background: var(--bg-hover); }
+    .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: all var(--transition); font-size: 1rem; line-height: 1; }
+    .btn-icon:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
+
+    .sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--border); }
+    .sidebar-footer .btn { width: 100%; }
+
+    /* Main area */
+    .main { flex: 1; overflow: auto; position: relative; background: var(--bg); }
+
+    /* Placeholder */
+    .placeholder-msg {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; color: var(--text-muted);
+    }
+    .placeholder-msg .icon { font-size: 56px; opacity: 0.3; }
+    .placeholder-msg p { font-size: 0.95rem; }
+
+    /* PDF container */
+    #pdf-container {
+      position: relative; display: inline-block; padding: 32px;
+      min-width: 100%; min-height: 100%;
+    }
+    #pdf-container.has-pdf { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .pdf-page { border-radius: 4px; box-shadow: 0 2px 16px rgba(0,0,0,0.4); display: block; }
+
+    /* Page indicators */
+    .page-indicator {
+      font-size: 0.7rem; color: var(--text-muted); text-align: center;
+      margin-top: -8px; margin-bottom: 8px;
+    }
+
+    /* Signature instances on PDF */
+    .sig-instance {
+      position: absolute; cursor: move; border: 2px solid transparent;
+      border-radius: 2px; transition: border-color 0.1s; user-select: none;
+    }
+    .sig-instance:hover { border-color: rgba(99,102,241,0.4); }
+    .sig-instance.selected { border-color: var(--accent); }
+    .sig-instance .delete-instance {
+      position: absolute; top: -10px; right: -10px; width: 20px; height: 20px;
+      background: var(--danger); color: #fff; border: none; border-radius: 50%;
+      font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .sig-instance.selected .delete-instance { display: flex; }
+    .sig-instance .resize-handle {
+      position: absolute; bottom: -5px; right: -5px; width: 14px; height: 14px;
+      background: var(--accent); border: 2px solid var(--bg); border-radius: 2px;
+      cursor: nwse-resize; display: none;
+    }
+    .sig-instance.selected .resize-handle { display: block; }
+
+    /* Signature palette (floating) */
+    #sig-palette {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(calc(-50% + 160px));
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 8px 12px; display: none; align-items: center; gap: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 100;
+    }
+    #sig-palette.visible { display: flex; }
+    #sig-palette .palette-label { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+    #sig-palette img {
+      height: 36px; width: auto; cursor: pointer; border-radius: 4px;
+      background: #fff; padding: 3px; border: 2px solid transparent; transition: all var(--transition);
+    }
+    #sig-palette img:hover { border-color: var(--accent); transform: scale(1.1); }
+
+    /* Toast */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+    .toast {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px 20px; font-size: 0.85rem; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: toastIn 0.3s ease; display: flex; align-items: center; gap: 8px;
+    }
+    .toast.success { border-color: var(--success); }
+    .toast.success::before { content: '✓'; color: var(--success); font-weight: bold; }
+    .toast.error { border-color: var(--danger); }
+    .toast.error::before { content: '✗'; color: var(--danger); font-weight: bold; }
+    .toast.info { border-color: var(--accent); }
+    .toast.info::before { content: 'ℹ'; color: var(--accent); font-weight: bold; }
+    .toast-exit { animation: toastOut 0.3s ease forwards; }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+    @keyframes toastOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(40px); } }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 998;
+      display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+    }
+    .loading-overlay.visible { display: flex; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 0.9rem; color: var(--text-muted); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .app { flex-direction: column; }
+      .sidebar { width: 100%; min-width: unset; height: auto; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+      .main { flex: 1; }
+      #sig-palette { transform: translateX(-50%); }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
   </style>
 </head>
 <body>
-  <div class="d-flex">
-    <!-- Sidebar -->
-    <nav class="bg-light vh-100 p-3">
-      <h4 class="mb-4">Éditeur PDF</h4>
-      <div class="mb-3">
-        <label for="pdf-input" class="form-label">Charger PDF</label>
-        <input class="form-control" type="file" id="pdf-input" accept="application/pdf" />
+  <div class="app">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">✒</div>
+        <h1>Signator 5000 Turbo</h1>
       </div>
-      <div class="mb-3">
-        <label for="sig-input" class="form-label">Importer Signature</label>
-        <input class="form-control" type="file" id="sig-input" accept="image/png" />
+
+      <div class="sidebar-content">
+        <!-- PDF input -->
+        <div>
+          <div class="section-title">Document PDF</div>
+          <div class="drop-zone" id="pdf-drop">
+            <input type="file" id="pdf-input" accept="application/pdf" />
+            <div class="drop-zone-icon">📄</div>
+            <div class="drop-zone-text">Glisser un PDF ou <strong>parcourir</strong></div>
+          </div>
+          <div id="pdf-name" style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;display:none;"></div>
+        </div>
+
+        <!-- Signature input -->
+        <div>
+          <div class="section-title">Ajouter une signature</div>
+          <div class="drop-zone" id="sig-drop">
+            <input type="file" id="sig-input" accept="image/png,image/jpeg,image/webp" />
+            <div class="drop-zone-icon">✍️</div>
+            <div class="drop-zone-text">Glisser une image ou <strong>parcourir</strong></div>
+          </div>
+        </div>
+
+        <!-- Signature list -->
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+          <div class="section-title">Signatures importées</div>
+          <div class="sig-list" id="sig-list">
+            <div id="no-sig-msg" style="font-size:0.8rem;color:var(--text-muted);text-align:center;padding:16px;">
+              Aucune signature importée
+            </div>
+          </div>
+        </div>
       </div>
-      <h5>Signatures importées</h5>
-      <ul class="list-group mb-3" id="sig-list"></ul>
-      <button class="btn btn-primary w-100 mb-3" id="save-btn">Enregistrer PDF signé</button>
+
+      <div class="sidebar-footer">
+        <button class="btn btn-primary" id="save-btn" disabled>
+          <span id="save-text">Enregistrer PDF signé</span>
+        </button>
+      </div>
     </nav>
 
-    <!-- Main content -->
-    <main class="d-flex justify-content-center align-items-start p-4">
+    <div class="main" id="main-area">
+      <div class="placeholder-msg" id="placeholder">
+        <div class="icon">📄</div>
+        <p>Chargez un PDF pour commencer</p>
+      </div>
       <div id="pdf-container"></div>
-      <div id="sig-palette"></div>
-    </main>
+      <div id="sig-palette">
+        <span class="palette-label">Cliquer pour placer :</span>
+      </div>
+    </div>
   </div>
 
-  <!-- Bootstrap Bundle JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <div class="toast-container" id="toast-container"></div>
+  <div class="loading-overlay" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loading-text">Chargement...</div>
+  </div>
+
   <script>
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
+    // DOM refs
     const pdfInput = document.getElementById('pdf-input');
     const sigInput = document.getElementById('sig-input');
     const saveBtn = document.getElementById('save-btn');
     const container = document.getElementById('pdf-container');
     const sigList = document.getElementById('sig-list');
     const sigPalette = document.getElementById('sig-palette');
+    const placeholder = document.getElementById('placeholder');
+    const pdfDrop = document.getElementById('pdf-drop');
+    const sigDrop = document.getElementById('sig-drop');
+    const pdfNameEl = document.getElementById('pdf-name');
+    const noSigMsg = document.getElementById('no-sig-msg');
+    const loadingOverlay = document.getElementById('loading');
+    const loadingText = document.getElementById('loading-text');
 
+    // State
     let pdfBytes = null;
     let originalName = '';
-    let signatures = [];
-    let selectedId = null;
+    let signatures = []; // { id, dataUrl, arrayBuffer, name, size, instances: [HTMLElement] }
+    let selectedInstanceEl = null;
     let sigCounter = 0;
 
-    // Charger et afficher le PDF
-    pdfInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      originalName = file.name;
-      pdfBytes = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
-      container.innerHTML = '';
-      signatures.forEach(sig => sig.instances.forEach(inst => inst.remove()));
-      signatures.forEach(sig => sig.instances = []);
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        canvas.className = 'pdf-page';
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        container.appendChild(canvas);
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-      }
-    });
-
-    // Importer une nouvelle signature
-    sigInput.addEventListener('change', (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      const url = URL.createObjectURL(file);
-      const id = 'sig-' + (++sigCounter);
-      const sigObj = { id, url, size: 100, instances: [] };
-      signatures.push(sigObj);
-      renderSignatureItem(sigObj);
-      renderPalette();
-    });
-
-    // Rendu de la liste de signatures
-    function renderSignatureItem(sig) {
-      const li = document.createElement('li');
-      li.className = 'list-group-item d-flex align-items-center';
-      li.id = 'item-' + sig.id;
-      li.innerHTML = `
-        <span class="flex-grow-1" style="cursor:pointer;">${sig.id}</span>
-        <input type="range" min="50" max="300" value="${sig.size}" class="form-range me-2" style="width:100px;" data-id="${sig.id}" />
-        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${sig.id}">X</button>
-      `;
-      // Sélection
-      li.querySelector('span').addEventListener('click', () => selectSignature(sig.id));
-      // Taille
-      li.querySelector('input').addEventListener('input', (ev) => {
-        sig.size = ev.target.value;
-        updateSignatureSize(sig.id);
-        renderPalette();
-      });
-      // Suppression
-      li.querySelector('button').addEventListener('click', () => {
-        deleteSignature(sig.id);
-      });
-      sigList.appendChild(li);
+    // ── Toast notifications ──
+    function toast(message, type = 'info') {
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = message;
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => { el.classList.add('toast-exit'); setTimeout(() => el.remove(), 300); }, 3000);
     }
 
-    // Rendu palette fixe
-    function renderPalette() {
-      sigPalette.innerHTML = '';
+    function showLoading(text) { loadingText.textContent = text; loadingOverlay.classList.add('visible'); }
+    function hideLoading() { loadingOverlay.classList.remove('visible'); }
+
+    // ── Drag-over styling for drop zones ──
+    [pdfDrop, sigDrop].forEach(zone => {
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+      zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); });
+    });
+
+    // ── PDF loading ──
+    pdfInput.addEventListener('change', e => { if (e.target.files[0]) loadPDF(e.target.files[0]); });
+    pdfDrop.addEventListener('drop', e => {
+      const file = e.dataTransfer.files[0];
+      if (file && file.type === 'application/pdf') loadPDF(file);
+      else if (file) toast('Le fichier doit être un PDF', 'error');
+    });
+
+    async function loadPDF(file) {
+      if (file.type !== 'application/pdf') { toast('Le fichier doit être un PDF', 'error'); return; }
+      if (file.size > 100 * 1024 * 1024) { toast('Le PDF est trop volumineux (max 100 Mo)', 'error'); return; }
+
+      showLoading('Chargement du PDF...');
+      try {
+        originalName = file.name;
+        pdfBytes = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+
+        // Clear previous
+        container.innerHTML = '';
+        container.classList.add('has-pdf');
+        signatures.forEach(sig => sig.instances = []);
+
+        const mainArea = document.getElementById('main-area');
+      const availableWidth = mainArea.clientWidth - 80; // 80 = padding
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const baseViewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(1.5, availableWidth / baseViewport.width);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.className = 'pdf-page';
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.dataset.pageIndex = i - 1;
+          container.appendChild(canvas);
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+          // Page indicator
+          const indicator = document.createElement('div');
+          indicator.className = 'page-indicator';
+          indicator.textContent = `Page ${i} / ${pdf.numPages}`;
+          container.appendChild(indicator);
+        }
+
+        placeholder.style.display = 'none';
+        pdfDrop.classList.add('file-loaded');
+        pdfNameEl.textContent = file.name;
+        pdfNameEl.style.display = 'block';
+        saveBtn.disabled = false;
+        updatePalette();
+        toast(`PDF chargé — ${pdf.numPages} page${pdf.numPages > 1 ? 's' : ''}`, 'success');
+      } catch (err) {
+        console.error(err);
+        toast('Impossible de lire ce PDF', 'error');
+      }
+      hideLoading();
+    }
+
+    // ── Signature import ──
+    sigInput.addEventListener('change', e => { if (e.target.files[0]) importSignature(e.target.files[0]); sigInput.value = ''; });
+    sigDrop.addEventListener('drop', e => {
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) importSignature(file);
+      else if (file) toast('Le fichier doit être une image (PNG, JPG, WebP)', 'error');
+    });
+
+    async function importSignature(file) {
+      if (!file.type.startsWith('image/')) { toast('Le fichier doit être une image', 'error'); return; }
+      if (file.size > 10 * 1024 * 1024) { toast('Image trop volumineuse (max 10 Mo)', 'error'); return; }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const dataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(file);
+      });
+
+      const id = 'sig-' + (++sigCounter);
+      const name = file.name.replace(/\.[^.]+$/, '');
+      const sigObj = { id, dataUrl, arrayBuffer, name, size: 120, instances: [] };
+      signatures.push(sigObj);
+      renderSigItem(sigObj);
+      updatePalette();
+      noSigMsg.style.display = 'none';
+      toast(`Signature "${name}" importée`, 'success');
+    }
+
+    // ── Signature list rendering ──
+    function renderSigItem(sig) {
+      const div = document.createElement('div');
+      div.className = 'sig-item';
+      div.id = 'item-' + sig.id;
+      div.innerHTML = `
+        <div class="sig-item-header">
+          <img class="sig-item-preview" src="${sig.dataUrl}" alt="${sig.name}" />
+          <span class="sig-item-name">${sig.name}</span>
+          <span class="sig-item-count" title="Instances placées">0</span>
+          <button class="btn-icon" title="Supprimer">&times;</button>
+        </div>
+        <div class="sig-item-controls">
+          <label>Taille</label>
+          <input type="range" class="size-slider" min="30" max="400" value="${sig.size}" />
+          <span class="size-value">${sig.size}</span>
+        </div>
+      `;
+
+      div.querySelector('.size-slider').addEventListener('input', e => {
+        sig.size = parseInt(e.target.value);
+        div.querySelector('.size-value').textContent = sig.size;
+        sig.instances.forEach(img => { img.querySelector('img').width = sig.size; });
+        updatePalette();
+      });
+
+      div.querySelector('.btn-icon').addEventListener('click', () => deleteSignature(sig.id));
+      sigList.appendChild(div);
+    }
+
+    function updateInstanceCount(sigId) {
+      const sig = signatures.find(s => s.id === sigId);
+      if (!sig) return;
+      const el = document.querySelector(`#item-${sigId} .sig-item-count`);
+      if (el) el.textContent = sig.instances.length;
+    }
+
+    // ── Floating palette ──
+    function updatePalette() {
+      // Remove old images
+      sigPalette.querySelectorAll('img').forEach(i => i.remove());
+      if (!pdfBytes || signatures.length === 0) { sigPalette.classList.remove('visible'); return; }
+
       signatures.forEach(sig => {
         const img = document.createElement('img');
-        img.src = sig.url;
-        img.width = sig.size;
-        img.alt = sig.id;
-        img.dataset.id = sig.id;
-        img.title = 'Cliquez pour ajouter';
+        img.src = sig.dataUrl;
+        img.alt = sig.name;
+        img.title = `Placer "${sig.name}"`;
         img.addEventListener('click', () => addInstance(sig.id));
         sigPalette.appendChild(img);
       });
+      sigPalette.classList.add('visible');
     }
 
-    // Ajouter une instance sur PDF
-    function addInstance(id) {
-      const sig = signatures.find(s => s.id === id);
+    // ── Add signature instance to PDF ──
+    function addInstance(sigId) {
+      if (!pdfBytes) { toast('Chargez un PDF d\'abord', 'error'); return; }
+      const sig = signatures.find(s => s.id === sigId);
+      if (!sig) return;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'sig-instance';
+      wrapper.dataset.sigId = sigId;
+
       const img = document.createElement('img');
-      img.src = sig.url;
-      img.className = 'sig-instance';
+      img.src = sig.dataUrl;
       img.width = sig.size;
-      img.dataset.id = id;
-      img.style.left = '10px';
-      img.style.top = '10px';
-      container.appendChild(img);
-      // Drag & drop
-      img.addEventListener('mousedown', startDrag);
-      sig.instances.push(img);
-      selectSignature(id);
+      img.draggable = false;
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'delete-instance';
+      delBtn.innerHTML = '&times;';
+      delBtn.title = 'Supprimer cette instance';
+      delBtn.addEventListener('click', e => { e.stopPropagation(); removeInstance(wrapper, sigId); });
+
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'resize-handle';
+      resizeHandle.addEventListener('mousedown', e => startResize(e, wrapper, sigId));
+      resizeHandle.addEventListener('touchstart', e => startResizeTouch(e, wrapper, sigId), { passive: false });
+
+      wrapper.appendChild(img);
+      wrapper.appendChild(delBtn);
+      wrapper.appendChild(resizeHandle);
+
+      // Position: center of the first visible page
+      const mainArea = document.getElementById('main-area');
+      const firstCanvas = container.querySelector('canvas');
+      if (firstCanvas) {
+        const canvasRect = firstCanvas.getBoundingClientRect();
+        const contRect = container.getBoundingClientRect();
+        const canvasLeft = canvasRect.left - contRect.left;
+        const canvasTop = canvasRect.top - contRect.top + mainArea.scrollTop;
+        const x = canvasLeft + canvasRect.width / 2 - sig.size / 2;
+        const y = canvasTop + canvasRect.height / 2 - 30;
+        wrapper.style.left = Math.max(canvasLeft, x) + 'px';
+        wrapper.style.top = Math.max(canvasTop, y) + 'px';
+      } else {
+        wrapper.style.left = '50px';
+        wrapper.style.top = '50px';
+      }
+
+      container.appendChild(wrapper);
+      sig.instances.push(wrapper);
+      updateInstanceCount(sigId);
+      selectInstance(wrapper);
+
+      // Drag
+      wrapper.addEventListener('mousedown', e => startDrag(e, wrapper));
+      wrapper.addEventListener('touchstart', e => startDragTouch(e, wrapper), { passive: false });
+
+      // Click to select
+      wrapper.addEventListener('click', e => { e.stopPropagation(); selectInstance(wrapper); });
     }
 
-    // Drag & drop handler
-    function startDrag(e) {
-      const img = e.target;
+    function removeInstance(el, sigId) {
+      el.remove();
+      const sig = signatures.find(s => s.id === sigId);
+      if (sig) {
+        sig.instances = sig.instances.filter(i => i !== el);
+        updateInstanceCount(sigId);
+      }
+      if (selectedInstanceEl === el) selectedInstanceEl = null;
+    }
+
+    function selectInstance(el) {
+      if (selectedInstanceEl) selectedInstanceEl.classList.remove('selected');
+      selectedInstanceEl = el;
+      el.classList.add('selected');
+
+      // Highlight corresponding sig item
+      document.querySelectorAll('.sig-item').forEach(i => i.classList.remove('active'));
+      const item = document.getElementById('item-' + el.dataset.sigId);
+      if (item) item.classList.add('active');
+    }
+
+    // Deselect on click outside
+    document.getElementById('main-area').addEventListener('click', () => {
+      if (selectedInstanceEl) { selectedInstanceEl.classList.remove('selected'); selectedInstanceEl = null; }
+      document.querySelectorAll('.sig-item').forEach(i => i.classList.remove('active'));
+    });
+
+    // Delete key removes selected instance
+    document.addEventListener('keydown', e => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedInstanceEl && !e.target.closest('input')) {
+        removeInstance(selectedInstanceEl, selectedInstanceEl.dataset.sigId);
+      }
+    });
+
+    // ── Resize (mouse) ──
+    function startResize(e, wrapper, sigId) {
       e.preventDefault();
+      e.stopPropagation();
+      selectInstance(wrapper);
+      const img = wrapper.querySelector('img');
       const startX = e.clientX;
-      const startY = e.clientY;
-      const origX = parseInt(img.style.left);
-      const origY = parseInt(img.style.top);
+      const origW = img.width;
+      const ratio = img.naturalHeight / img.naturalWidth;
+
       function onMove(ev) {
-        img.style.left = origX + (ev.clientX - startX) + 'px';
-        img.style.top = origY + (ev.clientY - startY) + 'px';
+        const newW = Math.max(30, Math.min(600, origW + (ev.clientX - startX)));
+        img.width = newW;
       }
       function onUp() {
         window.removeEventListener('mousemove', onMove);
@@ -179,68 +577,160 @@
       window.addEventListener('mouseup', onUp);
     }
 
-    // Sélectionner une signature
-    function selectSignature(id) {
-      selectedId = id;
-      document.querySelectorAll('.sig-instance').forEach(img => {
-        img.classList.toggle('selected-signature', img.dataset.id === id);
-      });
-    }
+    // ── Resize (touch) ──
+    function startResizeTouch(e, wrapper, sigId) {
+      e.preventDefault();
+      e.stopPropagation();
+      selectInstance(wrapper);
+      const img = wrapper.querySelector('img');
+      const touch = e.touches[0];
+      const startX = touch.clientX;
+      const origW = img.width;
 
-    // Mettre à jour la taille des instances et palette
-    function updateSignatureSize(id) {
-      const sig = signatures.find(s => s.id === id);
-      sig.instances.forEach(img => img.width = sig.size);
-    }
-
-    // Supprimer signature
-    function deleteSignature(id) {
-      signatures = signatures.filter(s => s.id !== id);
-      document.getElementById('item-' + id).remove();
-      renderPalette();
-      container.querySelectorAll(`.sig-instance[data-id="${id}"]`).forEach(el => el.remove());
-      if (selectedId === id) selectedId = null;
-    }
-
-    // Enregistrer le PDF signé
-    saveBtn.addEventListener('click', async () => {
-      if (!pdfBytes) { alert('Veuillez charger un PDF.'); return; }
-      const { PDFDocument } = PDFLib;
-      const pdfDoc = await PDFDocument.load(pdfBytes);
-      const canvases = Array.from(container.querySelectorAll('canvas'));
-      for (const sig of signatures) {
-        const pngBytes = await fetch(sig.url).then(r => r.arrayBuffer());
-        const pngImage = await pdfDoc.embedPng(pngBytes);
-        for (const img of sig.instances) {
-          const rect = img.getBoundingClientRect();
-          const contRect = container.getBoundingClientRect();
-          const relX = rect.left - contRect.left;
-          const relY = rect.top - contRect.top;
-          let pageIndex = 0, offsetY = 0;
-          canvases.forEach((canvas, i) => {
-            const cRect = canvas.getBoundingClientRect();
-            const top = cRect.top - contRect.top;
-            const bottom = top + cRect.height;
-            if (relY >= top && relY <= bottom) { pageIndex = i; offsetY = relY - top; }
-          });
-          const page = pdfDoc.getPages()[pageIndex];
-          const { width, height } = page.getSize();
-          const scale = canvases[pageIndex].width / width;
-          const imgW = img.width / scale;
-          const imgH = img.height / scale;
-          const x = relX / scale;
-          const y = (canvases[pageIndex].height - offsetY - img.height) / scale;
-          page.drawImage(pngImage, { x, y, width: imgW, height: imgH });
-        }
+      function onMove(ev) {
+        const t = ev.touches[0];
+        const newW = Math.max(30, Math.min(600, origW + (t.clientX - startX)));
+        img.width = newW;
       }
-      const modifiedBytes = await pdfDoc.save();
-      const blob = new Blob([modifiedBytes], { type: 'application/pdf' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      // Générer nom de fichier basé sur l'original + "-1"
-      const baseName = originalName.replace(/\.pdf$/i, '');
-      link.download = `${baseName}-1.pdf`;
-      link.click();
+      function onEnd() {
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onEnd);
+      }
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('touchend', onEnd);
+    }
+
+    // ── Drag (mouse) ──
+    function startDrag(e, wrapper) {
+      if (e.target.classList.contains('delete-instance') || e.target.classList.contains('resize-handle')) return;
+      e.preventDefault();
+      selectInstance(wrapper);
+      const startX = e.clientX, startY = e.clientY;
+      const origX = parseInt(wrapper.style.left), origY = parseInt(wrapper.style.top);
+
+      function onMove(ev) {
+        wrapper.style.left = (origX + ev.clientX - startX) + 'px';
+        wrapper.style.top = (origY + ev.clientY - startY) + 'px';
+      }
+      function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    }
+
+    // ── Drag (touch) ──
+    function startDragTouch(e, wrapper) {
+      if (e.target.classList.contains('delete-instance') || e.target.classList.contains('resize-handle')) return;
+      e.preventDefault();
+      selectInstance(wrapper);
+      const touch = e.touches[0];
+      const startX = touch.clientX, startY = touch.clientY;
+      const origX = parseInt(wrapper.style.left), origY = parseInt(wrapper.style.top);
+
+      function onMove(ev) {
+        const t = ev.touches[0];
+        wrapper.style.left = (origX + t.clientX - startX) + 'px';
+        wrapper.style.top = (origY + t.clientY - startY) + 'px';
+      }
+      function onEnd() { window.removeEventListener('touchmove', onMove); window.removeEventListener('touchend', onEnd); }
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('touchend', onEnd);
+    }
+
+    // ── Delete signature (all instances) ──
+    function deleteSignature(id) {
+      const sig = signatures.find(s => s.id === id);
+      if (!sig) return;
+      sig.instances.forEach(el => el.remove());
+      signatures = signatures.filter(s => s.id !== id);
+      const item = document.getElementById('item-' + id);
+      if (item) item.remove();
+      updatePalette();
+      if (signatures.length === 0) noSigMsg.style.display = 'block';
+      toast('Signature supprimée', 'info');
+    }
+
+    // ── Save signed PDF ──
+    saveBtn.addEventListener('click', async () => {
+      if (!pdfBytes) { toast('Aucun PDF chargé', 'error'); return; }
+
+      const allInstances = signatures.flatMap(s => s.instances);
+      if (allInstances.length === 0) { toast('Aucune signature placée sur le PDF', 'error'); return; }
+
+      showLoading('Enregistrement du PDF...');
+      try {
+        const { PDFDocument } = PDFLib;
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        const canvases = Array.from(container.querySelectorAll('canvas'));
+
+        for (const sig of signatures) {
+          if (sig.instances.length === 0) continue;
+
+          // Embed image from stored ArrayBuffer
+          let embeddedImage;
+          try {
+            embeddedImage = await pdfDoc.embedPng(sig.arrayBuffer);
+          } catch {
+            // Not a PNG, try JPEG
+            embeddedImage = await pdfDoc.embedJpg(sig.arrayBuffer);
+          }
+
+          for (const wrapper of sig.instances) {
+            const img = wrapper.querySelector('img');
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const contRect = container.getBoundingClientRect();
+            const relX = wrapperRect.left - contRect.left + container.parentElement.scrollLeft;
+            const relY = wrapperRect.top - contRect.top + container.parentElement.scrollTop;
+
+            // Find which page this instance is on
+            let pageIndex = 0, offsetY = 0;
+            for (let i = 0; i < canvases.length; i++) {
+              const canvas = canvases[i];
+              const cRect = canvas.getBoundingClientRect();
+              const cTop = cRect.top - contRect.top + container.parentElement.scrollTop;
+              const cBottom = cTop + cRect.height;
+              if (relY >= cTop && relY < cBottom) {
+                pageIndex = i;
+                offsetY = relY - cTop;
+                break;
+              }
+              // If past this canvas, keep updating (fallback to last page)
+              if (relY >= cTop) { pageIndex = i; offsetY = relY - cTop; }
+            }
+
+            const page = pdfDoc.getPages()[pageIndex];
+            const { width: pageW } = page.getSize();
+            const canvasEl = canvases[pageIndex];
+            const displayScale = canvasEl.getBoundingClientRect().width / canvasEl.width;
+            const renderScale = canvasEl.width / pageW;
+            const totalScale = displayScale * renderScale;
+
+            const imgDisplayW = img.getBoundingClientRect().width;
+            const imgDisplayH = img.getBoundingClientRect().height;
+
+            const pdfX = relX / totalScale;
+            const pdfImgW = imgDisplayW / totalScale;
+            const pdfImgH = imgDisplayH / totalScale;
+            const pdfY = page.getSize().height - (offsetY / totalScale) - pdfImgH;
+
+            page.drawImage(embeddedImage, { x: pdfX, y: pdfY, width: pdfImgW, height: pdfImgH });
+          }
+        }
+
+        const modifiedBytes = await pdfDoc.save();
+        const blob = new Blob([modifiedBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        const baseName = originalName.replace(/\.pdf$/i, '') || 'document';
+        link.download = `${baseName}-signe.pdf`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+
+        toast('PDF signé téléchargé !', 'success');
+      } catch (err) {
+        console.error('Erreur lors de la sauvegarde :', err);
+        toast('Erreur lors de la sauvegarde : ' + err.message, 'error');
+      }
+      hideLoading();
     });
   </script>
 </body>
