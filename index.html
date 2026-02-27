@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Signator 5000 Turbo</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-  <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+  <script src="libs/pdf.min.js"></script>
+  <script src="libs/pdf-lib.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -269,6 +269,10 @@
     </div>
   </div>
 
+  <div style="text-align:center;padding:12px;font-size:.65rem;color:#444;border-top:1px solid var(--border);">
+    100% local — aucun fichier envoyé, aucune donnée collectée, pas de cookies
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
   <div class="loading-overlay" id="loading">
     <div class="spinner"></div>
@@ -276,7 +280,7 @@
   </div>
 
   <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
 
     // DOM refs
     const pdfInput = document.getElementById('pdf-input');
